@@ -1,0 +1,30 @@
+{
+  "name": "bashgah-auto",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "scripts": {
+    "start": "node main.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bsg-auto/bsg-auto"
+  },
+  "dependencies": {
+    "@tensorflow/tfjs-node": "^1.5.2",
+    "@tensorflow/tfjs-vis": "^1.4.0",
+    "axios": "^0.19.2",
+    "jimp": "^0.9.3",
+    "jsdom": "^16.1.0",
+    "mkdirp": "^1.0.3",
+    "mongodb": "^3.5.2",
+    "mongoose": "^5.8.11"
+  },
+  "devDependencies": {
+    "@types/node": "^13.7.0"
+  }
+}
