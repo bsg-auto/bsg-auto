@@ -11,13 +11,17 @@ const {
 	setCookiesToCookies,
 	stringifyCookies,
 	getImagesDataset,
+	headersKeysToLowerCase,
+	writeHeadAndEnd,
+	writeHeadAndEndJson,
+	basicAuthParser,
 } = require('./functions')
 const {
 	NUM_DIGITS_PER_IMAGE,
 	DIGIT_WIDTH,
 	DIGIT_HEIGHT,
 	DIGIT_SIZE,
-	httpStatusCodes,
+	HTTP_STATUS,
 } = require('./values')
 const {
 	dbConnectPromise,
@@ -29,6 +33,8 @@ const {
  * @author {@link https://mirismaili.github.io S. Mahdi Mir-Ismaili}
  */
 'use strict'
+const env = process.env
+//***************************************************************************************/
 
 const axios = Axios.create({
 	baseURL: 'https://bashgah.com',
@@ -37,6 +43,7 @@ const axios = Axios.create({
 	withCredentials: true,
 })
 //***************************************************************************************/
+
 const credentialsPromise = new Promise(async resolve => {
 	await dbConnectPromise
 	resolve(await User.find().select('username password -_id'))
@@ -92,7 +99,7 @@ async function postAnswers(username, password, qaPairs) {
 	const predsAr = preds.arraySync()
 	
 	const answer = predsAr.join('')
-	console.log('resolved:', answer, username)
+	console.log('resolved captcha:', answer, username)
 	
 	response = await axios.post('/Account/Authenticate', {
 		UserName: username,
@@ -160,14 +167,21 @@ async function postAnswers(username, password, qaPairs) {
 }
 
 async function serve(req, res, reqBodyStr) {
+	if (!reqBodyStr)
+		return writeHeadAndEnd(res, {
+		status: HTTP_STATUS.BAD_REQUEST,
+		statusMessage: 'Bad Request! No body provided.'
+	})
+	
 	let reqBody
 	try {
-		// noinspection JSCheckFunctionSignatures
 		reqBody = JSON.parse(reqBodyStr)
 	} catch (error) {
-		console.error('request body:\n', JSON.stringify(reqBodyStr))
-		// noinspection ExceptionCaughtLocallyJS
-		throw error
+		console.log('request body:\n', reqBodyStr)
+		return writeHeadAndEnd(res, {
+			status: HTTP_STATUS.BAD_REQUEST,
+			statusMessage: "Bad Request! Body's not in JSON format."
+		})
 	}
 	console.log(reqBody)
 	
@@ -285,10 +299,7 @@ async function serve(req, res, reqBodyStr) {
 	}
 	await Promise.all(postAnswersPromises)
 	
-	res.writeHead(httpStatusCodes.OK, {
-		'Content-Type': 'application/json; charset=utf-8'
-	})
-	res.end(JSON.stringify(qaResults), 'utf-8')
+	writeHeadAndEndJson(res, {data: qaResults})
 }
 
 const MAX_RETRY_TIMES = 2
@@ -296,7 +307,6 @@ const MAX_RETRY_ON_TIMEOUTS = 5
 
 async function parseRequest(req) {
 	console.log(req.method, req.url)
-	// console.log(clientReq.headers)
 	// console.log(req.headers)
 	
 	// const cookies = parseCookies(req.headers['Cookie'] || '')
@@ -308,12 +318,23 @@ async function parseRequest(req) {
 		req
 				.on('data', chunk => data.push(chunk))
 				.on('end', () => resolve(Buffer.concat(data).toString()))
-	}) || process.env.SIMULATED_POST_DATA || ''
+	})
 	
 	return {body}
 }
 
 const onRequest = async (req, res) => {
+	headersKeysToLowerCase(req.headers)
+	
+	const httpCredential = basicAuthParser(req.headers.authorization, res)
+	if (!httpCredential) return
+	
+	if (!(httpCredential.username === env.username && httpCredential.password === env.password)) {
+		writeHeadAndEnd(res, {status: HTTP_STATUS.FORBIDDEN})
+		return
+	}
+	//***************************************************************/
+	
 	const {body} = await parseRequest(req)
 	
 	let tryNumber = 1
@@ -333,21 +354,20 @@ const onRequest = async (req, res) => {
 				tryNumber++
 				continue
 			}
-			res.writeHead(httpStatusCodes.INTERNAL_SERVER_ERROR, {
-				'Content-Type': 'text/html; charset=utf-8'
+			writeHeadAndEnd(res, {
+				status: HTTP_STATUS.INTERNAL_SERVER_ERROR,
+				data:
+						`<h1>${err.name}</h1>` +
+						`<p>${err.message}</p>` +
+						`<p>${req.url}</p>` +
+						`<pre>${err.stack}</pre>`,
 			})
-			res.end(
-					`<h1>${err.name}</h1>` +
-					`<p>${err.message}</p>` +
-					`<p>${req.url}</p>` +
-					`<pre>${err.stack}</pre>`,
-					'utf-8')
 			break
 		}
 	}
 }
 
-const PORT = process.env.PORT || 5000
+const PORT = env.PORT || 5000
 
 http.createServer(onRequest).listen(PORT)
 console.log(`Listening on port ${PORT} ...`)

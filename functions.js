@@ -1,12 +1,14 @@
-const  {
-	IMAGE_WIDTH ,
+const {
+	IMAGE_WIDTH,
 	DIGITS_RECTS_OFFSETS,
-	NUM_DIGITS_PER_IMAGE ,
+	NUM_DIGITS_PER_IMAGE,
 	DIGITS_RECTS_TOP,
 	DIGIT_ACTUAL_WIDTH,
 	DIGIT_WIDTH,
 	DIGIT_HEIGHT,
 	DIGIT_SIZE,
+	HTTP_STATUS,
+	CONTENT_TYPES,
 } = require('./values')
 
 /**
@@ -106,6 +108,73 @@ const parseCookies = cookiesStr =>
 			return acc
 		}, {})
 
+
+const headersKeysToLowerCase = headers => {
+	for (let key in headers) {
+		const newKey = key.toLowerCase()
+		if (key === newKey) continue
+		headers[newKey] = headers[key]
+		delete headers[key]
+	}
+	return headers
+}
+
+const writeHeadAndEnd = (res, {
+	status = HTTP_STATUS.OK,
+	statusMessage = status.status,
+	headers = CONTENT_TYPES.HTML,
+	data = `<h1>${status.code}</h1>` +
+	`<h2>${status.status}</h2>`,
+	encoding = 'utf-8',
+	callback,
+}) => {
+	res.writeHead(status.code, statusMessage, headers)
+	res.end(data, encoding, callback)
+}
+
+const writeHeadAndEndJson = (res, {
+	status = HTTP_STATUS.OK,
+	statusMessage = status.status,
+	headers = CONTENT_TYPES.JSON,
+	data = {},
+	encoding = 'utf-8',
+	callback,
+}) => {
+	res.writeHead(status.code, statusMessage, headers)
+	res.end(JSON.stringify(data), encoding, callback)
+}
+
+const basicAuthParser = (authorization, res) => {
+	const unauthorized = (res, ...msg) => {
+		console.log(...msg, '/ Authorization:', authorization)
+		writeHeadAndEnd(res, {
+			status: HTTP_STATUS.UNAUTHORIZED,
+			statusMessage: msg.join(' / '),
+			headers: {
+				...CONTENT_TYPES.HTML,
+				'WWW-Authenticate': 'Basic',
+			}
+		})
+		return false
+	}
+	
+	if (!authorization) return unauthorized(res, 'No Authorization')
+	
+	const isBasicAtFirst = authorization.startsWith('Basic ')
+	if (!isBasicAtFirst) return unauthorized(res, 'Bad Authorization', 'No "Basic " at first')
+	
+	const credentials = Buffer.from(authorization.substr('Basic '.length), 'base64').toString()
+	if (!credentials) return unauthorized(res, 'Bad credentials format', 'No base64 phrase provided')
+	
+	const indexOfColon = credentials.indexOf(':')
+	if (indexOfColon === -1) return unauthorized(res, 'Bad credentials format', 'Not in "username:password" format. No colon found.')
+	
+	return {
+		username: credentials.substr(0, indexOfColon),
+		password: credentials.substr(indexOfColon + 1),
+	}
+}
+
 module.exports = {
 	parseSetCookies,
 	setCookiesToCookies,
@@ -113,4 +182,8 @@ module.exports = {
 	combineColors,
 	getImagesDataset,
 	parseCookies,
+	headersKeysToLowerCase,
+	writeHeadAndEnd,
+	writeHeadAndEndJson,
+	basicAuthParser,
 }
