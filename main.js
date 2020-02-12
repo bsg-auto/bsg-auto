@@ -27,6 +27,10 @@ const {
 	dbConnectPromise,
 	User,
 } = require('./prepareDB')
+const {
+	Aes,
+	getExternalIP,
+} = require('./utils')
 
 /**
  * Created on 1398/11/17 (2020/2/6).
@@ -34,6 +38,7 @@ const {
  */
 'use strict'
 const env = process.env
+const aes = new Aes(Buffer.from(env.AES_KEY, 'hex'), 7)
 //***************************************************************************************/
 
 const axios = Axios.create({
@@ -44,10 +49,9 @@ const axios = Axios.create({
 })
 //***************************************************************************************/
 
-const credentialsPromise = new Promise(async resolve => {
-	await dbConnectPromise
-	resolve(await User.find().select('username password -_id'))
-})
+getExternalIP().then(console.log.bind(console, 'Public IP:')).catch(console.error.bind(console))
+//***************************************************************************************/
+
 let model = null
 let modelPromise = tf.loadLayersModel('file://./trained-models/bashgah-captcha@1398-11-17@10073.json')
 
@@ -95,6 +99,7 @@ async function postAnswers(username, password, qaPairs) {
 	
 	if (!model) model = await modelPromise
 	const prediction = model.predict(xs.reshape([NUM_DIGITS_PER_IMAGE, DIGIT_HEIGHT, DIGIT_WIDTH, 1]))
+	// noinspection JSCheckFunctionSignatures
 	const preds = prediction.argMax([-1])
 	const predsAr = preds.arraySync()
 	
@@ -169,9 +174,9 @@ async function postAnswers(username, password, qaPairs) {
 async function serve(req, res, reqBodyStr) {
 	if (!reqBodyStr)
 		return writeHeadAndEnd(res, {
-		status: HTTP_STATUS.BAD_REQUEST,
-		statusMessage: 'Bad Request! No body provided.'
-	})
+			status: HTTP_STATUS.BAD_REQUEST,
+			statusMessage: 'Bad Request! No body provided.'
+		})
 	
 	let reqBody
 	try {
@@ -180,10 +185,16 @@ async function serve(req, res, reqBodyStr) {
 		console.log('request body:\n', reqBodyStr)
 		return writeHeadAndEnd(res, {
 			status: HTTP_STATUS.BAD_REQUEST,
-			statusMessage: "Bad Request! Body's not in JSON format."
+			statusMessage: 'Bad Request! Body\'s not in JSON format.'
 		})
 	}
 	console.log(reqBody)
+	//********************************************************************************/
+	
+	const credentialsPromise = new Promise(async resolve => {
+		await dbConnectPromise
+		resolve(await User.find({passwordIsValid: true}).select('username encryptedPassword -_id'))
+	})
 	
 	const qaPairs = reqBody.qaPairs || []
 	const newCredentials = reqBody.credentials || {}
@@ -251,13 +262,14 @@ async function serve(req, res, reqBodyStr) {
 				const newUserData = {
 					name: userInfo.entity.user.customerTitle,
 					username,
-					password: newCredentials[username].password,
+					passwordIsValid: true,
+					encryptedPassword: Buffer.from(aes.encrypt(newCredentials[username].password)),
 					...userInfo,
 				}
-				
-				User.findOneAndUpdate({username}, newUserData, {new: true, upsert: true}).then(user => {
-					console.log('Upserted successfully:', user.username)
-				}).catch(console.error.bind(console, 'Upsert Error:'))
+				//console.log(newUserData.encryptedPassword)
+				User.updateOne({username}, newUserData, {upsert: true})
+						.then(console.log.bind(console, 'Upserted successfully:', username))
+						.catch(console.error.bind(console, 'Upsert Error:'))
 				
 				resolve()
 			} catch (err) {
@@ -272,13 +284,14 @@ async function serve(req, res, reqBodyStr) {
 	const credentials = await credentialsPromise
 	for (const credential of credentials) {
 		const username = credential.username
+		const password = aes.decrypt(credential.encryptedPassword)
 		
 		if (results[username] !== undefined) continue
 		
 		postAnswersPromises.push(new Promise(async (resolve, reject) => {
 			try {
 				while ((results[username] =
-								await postAnswers(username, credential.password, qaPairs.slice())
+								await postAnswers(username, password, qaPairs.slice())
 				) === 'retry') {
 				}
 				qaResults[username] = results[username].qaPairs
@@ -287,9 +300,9 @@ async function serve(req, res, reqBodyStr) {
 				
 				console.log('A WRONG credential:', username)
 				
-				User.deleteOne({username}).then(_ => {
-					console.log('Deleted successfully:', username)
-				}).catch(console.error.bind(console, 'Error during deleting from DB:'))
+				User.updateOne({username}, {passwordIsValid: false})
+						.then(console.log.bind(console, 'Upserted successfully:', username))
+						.catch(console.error.bind(console, 'Error during deleting from DB:'))
 				
 				resolve()
 			} catch (err) {
