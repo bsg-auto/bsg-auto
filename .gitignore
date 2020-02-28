@@ -3,4 +3,4 @@
 node_modules/
 /modules/
 /logs/
-temp.js
+temp.*

@@ -56,119 +56,130 @@ let model = null
 let modelPromise = tf.loadLayersModel('file://./trained-models/bashgah-captcha@1398-11-17@10073.json')
 
 async function postAnswers(username, password, qaPairs) {
-	let response = await axios.get(`/Account/CaptchaImage?id=${Date.now()}`, {
-		responseType: 'stream',
-		// headers: {
-		// 	'Host': 'bashgah.com',
-		// 	'Connection': 'keep-alive',
-		// 	'Cache-Control': 'max-age=0',
-		// 	'Upgrade-Insecure-Requests': '1',
-		// 	'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36',
-		// 	'Sec-Fetch-User': '?1',
-		// 	'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
-		// 	'Sec-Fetch-Site': 'none',
-		// 	'Sec-Fetch-Mode': 'navigate',
-		// 	'Accept-Encoding': 'gzip, deflate, br',
-		// 	'Accept-Language': 'en-US,en;q=0.9,fa;q=0.8',
-		// },
-	})
-	
-	console.log(response.status, response.statusText)
-	//console.log(response.headers)
-	// console.log(response.data.toString('hex'))
-	//console.log(response.config)
-	
-	let cookies = parseSetCookies(response.headers['set-cookie'])
-	const resDataStream = response.data
-	
-	// Write image to file:
-	// const defPath = `downloaded-captcha-${id}.png`
-	// resDataStream.pipe(fs.createWriteStream(defPath))
-	
-	// Convert the stream to array-buffer:
-	const chunks = []
-	for await (let chunk of resDataStream) chunks.push(chunk)
-	
-	const image = await Jimp.read(Buffer.concat(chunks))
-	const rawData = image.bitmap.data
-	
-	const imagesDataset = getImagesDataset(rawData)
-	
-	const xs = tf.tensor2d(imagesDataset, [NUM_DIGITS_PER_IMAGE, DIGIT_SIZE])
-	//xs.print('verbose')
-	
-	if (!model) model = await modelPromise
-	const prediction = model.predict(xs.reshape([NUM_DIGITS_PER_IMAGE, DIGIT_HEIGHT, DIGIT_WIDTH, 1]))
-	// noinspection JSCheckFunctionSignatures
-	const preds = prediction.argMax([-1])
-	const predsAr = preds.arraySync()
-	
-	const answer = predsAr.join('')
-	console.log('resolved captcha:', answer, username)
-	
-	response = await axios.post('/Account/Authenticate', {
-		UserName: username,
-		Password: password,
-		CaptchaCode: answer,
-	}, {
-		headers: {
-			// 'Host': 'bashgah.com',
-			// 'Connection': 'keep-alive',
-			// 'Accept': 'application/json, text/plain, */*',
-			// 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36',
-			// 'Content-Type': 'application/json;charset=UTF-8',
-			// 'Origin': 'https://bashgah.com',
-			// 'Sec-Fetch-Site': 'same-origin',
-			// 'Sec-Fetch-Mode': 'cors',
-			// 'Referer': 'https://bashgah.com/',
-			// 'Accept-Encoding': 'gzip, deflate, br',
-			// 'Accept-Language': 'en-US,en;q=0.9,fa;q=0.8',
-			'Cookie': stringifyCookies(setCookiesToCookies(cookies)),
-		},
-	})
-	
-	console.log(response.status, '/', response.statusText)
-	//console.log(response.headers)
-	
-	if (response.data.success !== true) {
-		switch (response.data.error) {
-			case 'کد امنیتی صحیح نیست':
-				return 'retry'
-			case 'نام کاربری یا کلمه عبور اشتباه است':
-				return 'wrong-credential'
-			default:
-				console.error('Unexpected error!', response.data)
-				return 'unexpected-error'
-		}
-	}
-	const userInfo = {entity: response.data.Entity, level: response.data.level}
-	const date = userInfo.entity.user.aggreeToDepositMoneyDate
-	userInfo.entity.user.aggreeToDepositMoneyDate = date.substring(6, date.length - 2)  // convert "/Date(###)/" to "###"
-	
-	cookies = cookies.concat(parseSetCookies(response.headers['set-cookie']))
-	// console.log(cookies)
-	// console.log(setCookiesToCookies(cookies))
-	// console.log(stringifyCookies(setCookiesToCookies(cookies)))
-	
-	for (const qa of qaPairs) {
-		response = await axios.post('/Competition/AnswerToQuestion', {
-			GambleScore: '',
-			AnswerOptionId: qa.answerId,
-			QuestionId: qa.questionId,
+	const MAX_TRIES = 5
+	let tries = 0
+	while (tries < MAX_TRIES) {
+		let response = await axios.get(`/Account/CaptchaImage?id=${Date.now()}`, {
+			responseType: 'stream',
+			// headers: {
+			// 	'Host': 'bashgah.com',
+			// 	'Connection': 'keep-alive',
+			// 	'Cache-Control': 'max-age=0',
+			// 	'Upgrade-Insecure-Requests': '1',
+			// 	'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36',
+			// 	'Sec-Fetch-User': '?1',
+			// 	'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.9',
+			// 	'Sec-Fetch-Site': 'none',
+			// 	'Sec-Fetch-Mode': 'navigate',
+			// 	'Accept-Encoding': 'gzip, deflate, br',
+			// 	'Accept-Language': 'en-US,en;q=0.9,fa;q=0.8',
+			// },
+		})
+		
+		console.log(response.status, response.statusText)
+		//console.log(response.headers)
+		// console.log(response.data.toString('hex'))
+		//console.log(response.config)
+		
+		let cookies = parseSetCookies(response.headers['set-cookie'])
+		const resDataStream = response.data
+		
+		// Write image to file:
+		// const defPath = `downloaded-captcha-${username}.png`
+		// resDataStream.pipe(fs.createWriteStream(defPath))
+		
+		// Convert the stream to array-buffer:
+		const chunks = []
+		for await (let chunk of resDataStream) chunks.push(chunk)
+		
+		const buffer = Buffer.concat(chunks)
+		const image = await Jimp.read(buffer)
+		const bitmap = image.bitmap.data
+		
+		const imagesDataset = getImagesDataset(bitmap)
+		
+		const xs = tf.tensor2d(imagesDataset, [NUM_DIGITS_PER_IMAGE, DIGIT_SIZE])
+		//xs.print('verbose')
+		
+		if (!model) model = await modelPromise
+		const prediction = model.predict(xs.reshape([NUM_DIGITS_PER_IMAGE, DIGIT_HEIGHT, DIGIT_WIDTH, 1]))
+		// noinspection JSCheckFunctionSignatures
+		const preds = prediction.argMax([-1])
+		const predsAr = preds.arraySync()
+		
+		const answer = predsAr.join('')
+		console.log('resolved captcha:', answer, username)
+		
+		response = await axios.post('/Account/Authenticate', {
+			UserName: username,
+			Password: password,
+			CaptchaCode: answer,
 		}, {
 			headers: {
+				// 'Host': 'bashgah.com',
+				// 'Connection': 'keep-alive',
+				// 'Accept': 'application/json, text/plain, */*',
+				// 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/79.0.3945.130 Safari/537.36',
+				// 'Content-Type': 'application/json;charset=UTF-8',
+				// 'Origin': 'https://bashgah.com',
+				// 'Sec-Fetch-Site': 'same-origin',
+				// 'Sec-Fetch-Mode': 'cors',
+				// 'Referer': 'https://bashgah.com/',
+				// 'Accept-Encoding': 'gzip, deflate, br',
+				// 'Accept-Language': 'en-US,en;q=0.9,fa;q=0.8',
 				'Cookie': stringifyCookies(setCookiesToCookies(cookies)),
 			},
 		})
-		console.log(response.status + '#' + response.statusText)
 		
-		if (!response.data.success)
-			console.error(username, response.data.error || response.data)
+		console.log(response.status, '/', response.statusText)
+		//console.log(response.headers)
 		
-		qa.resData = (response.data)
+		if (response.data.success !== true) {
+			switch (response.data.error) {
+				case 'کد امنیتی صحیح نیست':
+					console.log(tries++, answer, buffer.toString('base64'))
+					continue  // retry
+				case 'نام کاربری یا کلمه عبور اشتباه است':
+					console.error('WRONG-CREDENTIAL', username, password)
+					return 'wrong-credential'
+				default:
+					console.error('Unexpected error!', response.data)
+					return 'unexpected-error'
+			}
+		}
+		
+		const userInfo = {entity: response.data.Entity, level: response.data.level}
+		const date = userInfo.entity.user.aggreeToDepositMoneyDate
+		userInfo.entity.user.aggreeToDepositMoneyDate = date.substring(6, date.length - 2)  // convert "/Date(###)/" to "###"
+		
+		cookies = cookies.concat(parseSetCookies(response.headers['set-cookie']))
+		// console.log(cookies)
+		// console.log(setCookiesToCookies(cookies))
+		// console.log(stringifyCookies(setCookiesToCookies(cookies)))
+		
+		for (const qa of qaPairs) {
+			response = await axios.post('/Competition/AnswerToQuestion', {
+				GambleScore: '',
+				AnswerOptionId: qa.answerId,
+				QuestionId: qa.questionId,
+			}, {
+				headers: {
+					'Cookie': stringifyCookies(setCookiesToCookies(cookies)),
+				},
+			})
+			console.log(response.status + '#' + response.statusText)
+			
+			if (!response.data.success)
+				console.error(username, response.data.error || response.data)
+			
+			qa.resData = (response.data)
+		}
+		
+		return {userInfo, qaPairs}
 	}
 	
-	return {userInfo, qaPairs}
+	console.error('max-captcha-reading-tries-exceeded')
+	return 'max-captcha-reading-tries-exceeded'
 }
 
 async function serve(req, res, reqBodyStr) {
@@ -249,10 +260,8 @@ async function serve(req, res, reqBodyStr) {
 	for (const username in newCredentials) {
 		postAnswersPromises.push(new Promise(async (resolve, reject) => {
 			try {
-				while ((results[username] =
-								await postAnswers(username, newCredentials[username].password, qaPairs.slice())
-				) === 'retry') {
-				}
+				results[username] = await postAnswers(username, newCredentials[username].password, qaPairs.slice())
+				
 				qaResults[username] = results[username].qaPairs
 				
 				if (results[username] === 'wrong-credential') return resolve()
@@ -290,10 +299,8 @@ async function serve(req, res, reqBodyStr) {
 		
 		postAnswersPromises.push(new Promise(async (resolve, reject) => {
 			try {
-				while ((results[username] =
-								await postAnswers(username, password, qaPairs.slice())
-				) === 'retry') {
-				}
+				results[username] = await postAnswers(username, password, qaPairs.slice())
+
 				qaResults[username] = results[username].qaPairs
 				
 				if (results[username] !== 'wrong-credential') return resolve()

@@ -24,10 +24,12 @@ const {
  */
 const parseSetCookies = setCookieStrs =>
 		setCookieStrs.map(cookieStr => {
-			const entries = cookieStr.split(';')   // ['SESSION_COOKIE=xxx', ' path=/', ' secure', ' HttpOnly']
-					.map(setCookiePartStr => {  // " path=/"
-								const [name, value] = setCookiePartStr.split('=')  // [" path", "/"], [" secure", undefined]
-								return [name.trimStart(), value === undefined ? true : value] // ["path", "/"], [" secure", true]
+			const entries = cookieStr.split(';')   // => ['SESSION_COOKIE=B64=', ' path=/', ' secure', ' HttpOnly']
+					.map(setCookiePartStr => {
+						const [name, value] = setCookiePartStr.split(/=(.*)/)  // split regex: https://stackoverflow.com/a/4607799/5318303
+						// => ['SESSION_COOKIE', 'B64='], [' path', '/'], [' secure', undefined], [' HttpOnly', '']
+						return [name.trimStart(), value === undefined ? true : value]
+						// => ['SESSION_COOKIE', 'B64='], ['path', '/'], ['secure', true], ['HttpOnly', '']
 							}
 					)
 			return Object.fromEntries(entries)
